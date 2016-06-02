@@ -24,7 +24,7 @@ because AWS Lambda (http://aws.amazon.com/lambda) provides an event-driven, zero
 compute service. It allows developers to create applications that are automatically 
 hosted and scaled, while providing you with a fine-grained pricing structure.
 
-![Loader Architecture](Architecture.png)
+![Loader Architecture](doc/Architecture.png)
 
 The function maintains a list of all the files to be loaded from S3 into Amazon 
 Redshift using a DynamoDB table. This list allows us to confirm that a file is loaded 
@@ -132,7 +132,7 @@ credentials to Redshift for the COPY command:
 
 This is the recommended model for all customers, and the only option for accounts recently created. In this model, your Redshift cluster is in a VPC Subnet, and we recommend using [AWS Lambda VPC Endpoints](http://docs.aws.amazon.com/lambda/latest/dg/vpc.html) to manage access to your cluster. A logical architecture diagram is below:
 
-![VPC Connectivity](VPCConnectivity.png)
+![VPC Connectivity](doc/VPCConnectivity.png)
 
 In this architecture, you expose your AWS Lambda function into your VPC subnets, and then select a security group for your Lambda function. You then grant access from your Redshift VPC Security Group to this Lambda VPC Security Group. However, because the Lambda Loader configuration is managed through DynamoDB, your Lambda function must also have internet egress enabled, and the easiest way to do this is to use [VPC NAT Gateway](http://docs.aws.amazon.com/AmazonVPC/latest/UserGuide/vpc-nat-gateway.html). The following steps should be undertaken:
 
@@ -337,7 +337,7 @@ The script takes an 'operation type' and 'filename' as arguments; use -q to quer
 if a file has been processed, and -d to delete a given file entry. An example of 
 the processed files store can be seen below:
 
-![Processed Files Table](ProcessedFilesTable.png)
+![Processed Files Table](doc/ProcessedFilesTable.png)
  
 ## Reprocessing a Batch
 If you ever need to reprocess a batch - for example if it failed to load the required 
