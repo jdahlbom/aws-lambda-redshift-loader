@@ -30,5 +30,6 @@
   "kms": {
     "alias": "alias/LambdaRedshiftLoaderKey"
   },
+  "region": "eu-west-1",
   "debug": true
 }

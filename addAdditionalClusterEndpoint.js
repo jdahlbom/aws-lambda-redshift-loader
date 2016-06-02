@@ -17,7 +17,7 @@ var aws = require('aws-sdk');
 var dynamoDB;
 var conf = require('./config.json');
 var kmsCrypto = require('./kmsCrypto');
-var setRegion = 'us-east-1'; //FIXME hard coded region name.
+var setRegion = conf.region;
 var common = require('./common');
 var async = require('async');
 
