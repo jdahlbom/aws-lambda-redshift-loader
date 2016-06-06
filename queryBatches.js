@@ -5,16 +5,16 @@
 
         http://aws.amazon.com/asl/
 
-    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License. 
+    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
 
 var aws = require('aws-sdk');
-require('./constants');
+var conf = require('./config.json');
 var common = require('./common');
 
 if (process.argv.length < 4) {
 	console.log("You must provide an AWS Region Code, Batch Status, and optionally a start time to query from");
-	process.exit(ERROR);
+	process.exit(conf.const.ERROR);
 }
 var setRegion = process.argv[2];
 var batchStatus = process.argv[3];
@@ -43,8 +43,8 @@ queryItem = {
 			} ]
 		}
 	},
-	TableName : batchTable,
-	IndexName : batchStatusGSI
+	TableName : conf.table.batch,
+	IndexName : conf.const.batchStatusGSI
 };
 
 if (startDate) {
@@ -58,7 +58,7 @@ if (startDate) {
 dynamoDB.query(queryItem, function(err, data) {
 	if (err) {
 		console.log(err);
-		process.exit(ERROR);
+		process.exit(conf.const.ERROR);
 	} else {
 		if (data && data.Items) {
 			var itemsToShow = [];

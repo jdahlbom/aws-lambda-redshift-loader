@@ -5,7 +5,7 @@
 
         http://aws.amazon.com/asl/
 
-    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License. 
+    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
 var debug = false;
 var pjson = require('./package.json');
@@ -32,7 +32,8 @@ var sns = new aws.SNS({
 	apiVersion : '2010-03-31',
 	region : region
 });
-require('./constants');
+
+var conf = require('./config.json');
 var kmsCrypto = require('./kmsCrypto');
 kmsCrypto.setRegion(region);
 var common = require('./common');
@@ -40,6 +41,9 @@ var async = require('async');
 var uuid = require('node-uuid');
 var pg = require('pg');
 var upgrade = require('./upgrades');
+
+var ERROR = conf.const.ERROR;
+var OK = conf.const.OK;
 
 String.prototype.shortenPrefix = function() {
 	var tokens = this.split("/");
@@ -79,7 +83,7 @@ exports.getConfigWithRetry = function(prefix, callback) {
 				S : prefix
 			}
 		},
-		TableName : configTable,
+		TableName : conf.table.config,
 		ConsistentRead : true
 	};
 
@@ -94,11 +98,11 @@ exports.getConfigWithRetry = function(prefix, callback) {
 		// foundConfig on completion
 		dynamoDB.getItem(dynamoLookup, function(err, data) {
 			if (err) {
-				if (err.code === provisionedThroughputExceeded) {
+				if (err.code === conf.const.provisionedThroughputExceeded) {
 					// sleep for bounded jitter time up to 1
 					// second and then retry
 					var timeout = common.randomInt(0, 1000);
-					console.log(provisionedThroughputExceeded + " while accessing " + configTable + ". Retrying in " + timeout + " ms");
+					console.log(conf.const.provisionedThroughputExceeded + " while accessing " + conf.table.config + ". Retrying in " + timeout + " ms");
 					setTimeout(callback, timeout);
 				} else {
 					// some other error - call the error
@@ -179,7 +183,7 @@ exports.handler = function(event, context) {
 			console.log(err);
 			var msg = 'Error getting Redshift Configuration for ' + s3Info.prefix + ' from DynamoDB ';
 			console.log(msg);
-			context.done(error, msg);
+			context.done(conf.state.error, msg);
 		}
 
 		console.log("Found Redshift Load Configuration for " + s3Info.prefix);
@@ -191,7 +195,7 @@ exports.handler = function(event, context) {
 		exports.upgradeConfig(s3Info, config, function(err, s3Info, useConfig) {
 			if (err) {
 				console.log(err);
-				context.done(error, err);
+				context.done(conf.state.error, err);
 			} else {
 				if (useConfig.filenameFilterRegex) {
 					if (s3Info.key.match(useConfig.filenameFilterRegex.S)) {
@@ -234,7 +238,7 @@ exports.handler = function(event, context) {
 					Exists : false
 				}
 			},
-			TableName : filesTable
+			TableName : conf.table.files
 		};
 
 		// add the file to the processed list
@@ -301,7 +305,7 @@ exports.handler = function(event, context) {
 										S : s3Info.prefix
 									}
 								},
-								TableName : batchTable,
+								TableName : conf.table.batch,
 								UpdateExpression : "add entries :entry, writeDates :appendFileDate set #stat = :open, lastUpdate = :updateTime",
 								ExpressionAttributeNames : {
 									"#stat" : 'status'
@@ -330,7 +334,7 @@ exports.handler = function(event, context) {
 							var configReloads = 0;
 							dynamoDB.updateItem(item, function(err, data) {
 								if (err) {
-									if (err.code === conditionCheckFailed) {
+									if (err.code === conf.const.conditionCheckFailed) {
 										/*
 										 * the batch I have a reference to was
 										 * locked so reload the current batch ID
@@ -342,14 +346,14 @@ exports.handler = function(event, context) {
 													S : s3Info.prefix
 												}
 											},
-											TableName : configTable,
+											TableName : conf.table.config,
 											ConsistentRead : true
 										};
 										dynamoDB.getItem(configReloadRequest, function(err, data) {
 											configReloads++;
 											if (err) {
-												if (err === provisionedThroughputExceeded) {
-													console.log("Provisioned Throughput Exceeded on reload of " + configTable + " due to locked batch write");
+												if (err === conf.const.provisionedThroughputExceeded) {
+													console.log("Provisioned Throughput Exceeded on reload of " + conf.table.config + " due to locked batch write");
 													callback();
 												} else {
 													console.log(err);
@@ -414,7 +418,7 @@ exports.handler = function(event, context) {
 										 * process what happened if the
 										 * iterative request to write to the
 										 * open pending batch timed out
-										 * 
+										 *
 										 * TODO Can we force a rotation of the
 										 * current batch at this point?
 										 */
@@ -425,7 +429,7 @@ exports.handler = function(event, context) {
 												+ " attempts. Failing further processing to Batch "
 												+ thisBatchId
 												+ " which may be stuck in '"
-												+ locked
+												+ conf.state.locked
 												+ "' state. If so, unlock the back using `node unlockBatch.js <batch ID>`, delete the processed file marker with `node processedFiles.js -d <filename>`, and then re-store the file in S3";
 										console.log(e);
 										exports.sendSNS(config.failureTopicARN.S, "Lambda Redshift Loader unable to write to Open Pending Batch", e, function() {
@@ -459,7 +463,7 @@ exports.handler = function(event, context) {
 					S : itemEntry
 				}
 			},
-			TableName : filesTable,
+			TableName : conf.table.files,
 			AttributeUpdates : {
 				batchId : {
 					Action : 'PUT',
@@ -495,7 +499,7 @@ exports.handler = function(event, context) {
 					S : s3Info.prefix
 				}
 			},
-			TableName : batchTable,
+			TableName : conf.table.batch,
 			AttributeUpdates : {
 				manifestFile : {
 					Action : 'PUT',
@@ -536,14 +540,14 @@ exports.handler = function(event, context) {
 					S : s3Info.prefix
 				}
 			},
-			TableName : batchTable,
+			TableName : conf.table.batch,
 			ConsistentRead : true
 		};
 
 		dynamoDB.getItem(currentBatchRequest, function(err, data) {
 			if (err) {
 				if (err === provisionedThroughputExceeded) {
-					console.log("Provisioned Throughput Exceeded on read of " + batchTable);
+					console.log("Provisioned Throughput Exceeded on read of " + conf.table.batch);
 					callback();
 				} else {
 					console.log(err);
@@ -592,12 +596,12 @@ exports.handler = function(event, context) {
 								S : s3Info.prefix
 							}
 						},
-						TableName : batchTable,
+						TableName : conf.table.batch,
 						AttributeUpdates : {
 							status : {
 								Action : 'PUT',
 								Value : {
-									S : locked
+									S : conf.state.locked
 								}
 							},
 							lastUpdate : {
@@ -636,7 +640,7 @@ exports.handler = function(event, context) {
 								 */
 								context.done(null, null);
 							} else if (err.code === provisionedThroughputExceeded) {
-								console.log("Provisioned Throughput Exceeded on " + batchTable + " while trying to lock Batch");
+								console.log("Provisioned Throughput Exceeded on " + conf.table.batch + " while trying to lock Batch");
 								context.done(error, err);
 							} else {
 								console.log("Unable to lock Batch " + thisBatchId);
@@ -664,7 +668,7 @@ exports.handler = function(event, context) {
 											S : s3Info.prefix
 										}
 									},
-									TableName : configTable,
+									TableName : conf.table.config,
 									AttributeUpdates : {
 										currentBatch : {
 											Action : 'PUT',
@@ -804,7 +808,7 @@ exports.handler = function(event, context) {
 							S : s3Info.prefix
 						}
 					},
-					TableName : batchTable,
+					TableName : conf.table.batch,
 					AttributeUpdates : {
 						clusterLoadStatus : {
 							Action : 'PUT',
@@ -923,7 +927,7 @@ exports.handler = function(event, context) {
 	}
 	/**
 	 * Function which loads a redshift cluster
-	 * 
+	 *
 	 */
 	exports.loadCluster = function(config, thisBatchId, s3Info, manifestInfo, clusterInfo, callback) {
 		/* build the redshift copy command */
@@ -955,12 +959,9 @@ exports.handler = function(event, context) {
 
 		var encryptedItems = {};
 		var useLambdaCredentialsToLoad = true;
-		const
-		s3secretKeyMapEntry = "s3secretKey";
-		const
-		passwordKeyMapEntry = "clusterPassword";
-		const
-		symmetricKeyMapEntry = "symmetricKey";
+		const s3secretKeyMapEntry = "s3secretKey";
+		const passwordKeyMapEntry = "clusterPassword";
+		const symmetricKeyMapEntry = "symmetricKey";
 
 		if (config.secretKeyForS3) {
 			encryptedItems[s3secretKeyMapEntry] = new Buffer(config.secretKeyForS3.S, 'base64');
@@ -1150,7 +1151,7 @@ exports.handler = function(event, context) {
 								S : s3Info.prefix
 							}
 						},
-						TableName : batchTable,
+						TableName : conf.table.batch,
 						AttributeUpdates : {
 							manifestFile : {
 								Action : 'PUT',
@@ -1192,9 +1193,9 @@ exports.handler = function(event, context) {
 		var batchEndStatus;
 
 		if (batchError && batchError !== null) {
-			batchEndStatus = error;
+			batchEndStatus = conf.state.error;
 		} else {
-			batchEndStatus = complete;
+			batchEndStatus = conf.state.complete;
 		}
 
 		var item = {
@@ -1206,7 +1207,7 @@ exports.handler = function(event, context) {
 					S : s3Info.prefix
 				}
 			},
-			TableName : batchTable,
+			TableName : conf.table.batch,
 			AttributeUpdates : {
 				status : {
 					Action : 'PUT',

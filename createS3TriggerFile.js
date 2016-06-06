@@ -1,6 +1,6 @@
 var debug = false;
 
-require('./constants');
+var config = require("./config.json");
 var aws = require('aws-sdk');
 /* jshint -W069 */// suppress warnings about dot notation
 var setRegion = process.env['AWS_REGION'];
@@ -19,7 +19,7 @@ exports.handler = function(event, context) {
 	"use strict";
 
 	var dynamoConfigLookup = {
-		TableName : configTable,
+		TableName : config.table.config,
 	};
 
 	// read each config entry to create trigger file for each location

@@ -5,17 +5,17 @@
 
         http://aws.amazon.com/asl/
 
-    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License. 
+    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
 
 var aws = require('aws-sdk');
 var async = require('async');
-require('./constants');
+var conf = require('./config.json');
 var common = require('./common');
 
 if (process.argv.length < 4) {
 	console.log("You must provide an AWS Region Code, Batch ID, and configured Input Location");
-	process.exit(ERROR);
+	process.exit(conf.const.ERROR);
 }
 var setRegion = process.argv[2];
 var thisBatchId = process.argv[3];
@@ -39,11 +39,11 @@ var processFile = function(batchEntry, callback) {
 				S : batchEntry
 			}
 		},
-		TableName : filesTable
+		TableName : conf.table.files
 	};
 	dynamoDB.deleteItem(fileItem, function(err, data) {
 		if (err) {
-			console.log(filesTable + " Delete Error");
+			console.log(conf.table.files + " Delete Error");
 			console.log(err);
 			callback(err);
 		} else {
@@ -79,7 +79,7 @@ var processFile = function(batchEntry, callback) {
 var updateBatchStatus = function(thisBatchId, err, results) {
 	if (err) {
 		console.log(JSON.stringify(err));
-		process.exit(ERROR);
+		process.exit(conf.const.ERROR);
 	} else {
 		var updateBatchStatus = {
 			Key : {
@@ -90,7 +90,7 @@ var updateBatchStatus = function(thisBatchId, err, results) {
 					S : prefix
 				}
 			},
-			TableName : batchTable,
+			TableName : conf.table.batch,
 			AttributeUpdates : {
 				status : {
 					Action : 'PUT',
@@ -122,10 +122,10 @@ var updateBatchStatus = function(thisBatchId, err, results) {
 		dynamoDB.updateItem(updateBatchStatus, function(err, data) {
 			if (err) {
 				console.log(JSON.stringify(err));
-				process.exit(ERROR);
+				process.exit(conf.const.ERROR);
 			} else {
 				console.log("Batch " + thisBatchId + " Submitted for Reprocessing");
-				process.exit(OK);
+				process.exit(conf.const.OK);
 			}
 		})
 	}
@@ -141,19 +141,19 @@ var getBatch = {
 			S : prefix
 		}
 	},
-	TableName : batchTable,
+	TableName : conf.table.batch,
 	ConsistentRead : true
 };
 
 dynamoDB.getItem(getBatch, function(err, data) {
 	if (err) {
 		console.log(err);
-		process.exit(ERROR);
+		process.exit(conf.const.ERROR);
 	} else {
 		if (data && data.Item) {
 			if (data.Item.status.S === open) {
 				console.log("Cannot reprocess an Open Batch");
-				process.exit(error);
+				process.exit(conf.state.error);
 			} else {
 				// load the global batch entries so that we can process it in
 				// callbacks
@@ -167,7 +167,7 @@ dynamoDB.getItem(getBatch, function(err, data) {
 			}
 		} else {
 			console.log("Unable to retrieve batch " + thisBatchId + " for prefix " + prefix);
-			process.exit(ERROR);
+			process.exit(conf.const.ERROR);
 		}
 	}
 });

@@ -5,11 +5,12 @@
 
         http://aws.amazon.com/asl/
 
-    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License. 
+    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
 var pjson = require('./package.json');
 var common = require('./common');
 var async = require('async');
+var conf = require('./config.json');
 var dynamoClient;
 var debug = false;
 
@@ -83,7 +84,7 @@ exports.v1_v2 = function(err, s3Info, configPre, forwardCallback) {
 								S : s3Info.prefix
 							}
 						},
-						TableName : configTable,
+						TableName : conf.table.config,
 						ConsistentRead : true
 					};
 
@@ -202,7 +203,7 @@ exports.fixEncryptedItemEncoding = function(err, s3Info, configPre, forwardCallb
 								S : s3Info.prefix
 							}
 						},
-						TableName : configTable,
+						TableName : conf.table.config,
 						ConsistentRead : true
 					};
 

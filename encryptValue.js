@@ -5,9 +5,9 @@
 
         http://aws.amazon.com/asl/
 
-    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License. 
+    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
-require('./constants');
+var config = require('./config.json');
 
 var region = process.argv[2];
 var input = process.argv[3];
@@ -21,12 +21,12 @@ if (!input) {
 	kmsCrypto.encrypt(input, function(err, encryptedCiphertext) {
 		if (err) {
 			console.log(err);
-			process.exit(ERROR);
+			process.exit(config.const.ERROR);
 		} else {
 			kmsCrypto.decrypt(encryptedCiphertext, function(err, plaintext) {
 				if (err) {
 					console.log(err);
-					process.exit(ERROR);
+					process.exit(config.const.ERROR);
 				} else {
 					if (plaintext.toString() === input) {
 						console.log("Encryption completed and verified with AWS KMS");
@@ -37,7 +37,7 @@ if (!input) {
 						}));
 					} else {
 						console.log("Encryption completed but could not be verified");
-						process.exit(ERROR);
+						process.exit(config.const.ERROR);
 					}
 				}
 			});

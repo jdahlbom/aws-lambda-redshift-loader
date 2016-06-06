@@ -5,16 +5,16 @@
 
         http://aws.amazon.com/asl/
 
-    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License. 
+    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
 
 var aws = require('aws-sdk');
-require('./constants');
+var conf = require('./config.json');
 var common = require('./common');
 
 var usage = function() {
 	console.log("You must provide an AWS Region Code, Batch ID, and configured Input Location to use Unlock.");
-	process.exit(ERROR);
+	process.exit(conf.const.ERROR);
 }
 
 if (process.argv.length < 4) {
@@ -39,14 +39,14 @@ var getConfig = {
 			S : prefix
 		}
 	},
-	TableName : configTable,
+	TableName : conf.table.config,
 	ConsistentRead : true
 };
 
 dynamoDB.getItem(getConfig, function(err, data) {
 	if (err) {
 		console.log(err);
-		process.exit(ERROR);
+		process.exit(conf.const.ERROR);
 	} else {
 		if (!data) {
 			console.log("Unable to find Configuration with S3 Prefix " + prefix + " in Region " + setRegion);
@@ -55,7 +55,7 @@ dynamoDB.getItem(getConfig, function(err, data) {
 			if (data.Item.currentBatch.S !== thisBatchId) {
 				console.log("Batch " + thisBatchId + " is not currently allocated as the open batch for Load Configuration on "
 						+ prefix + ". Use reprocessBatch.js to rerun the load of this Batch.");
-				process.exit(ERROR);
+				process.exit(conf.const.ERROR);
 			} else {
 				var updateBatchStatus = {
 					Key : {
@@ -66,7 +66,7 @@ dynamoDB.getItem(getConfig, function(err, data) {
 							S : prefix
 						}
 					},
-					TableName : batchTable,
+					TableName : conf.table.batch,
 					AttributeUpdates : {
 						status : {
 							Action : 'PUT',
@@ -102,13 +102,13 @@ dynamoDB.getItem(getConfig, function(err, data) {
 							console.log("Batch " + thisBatchId + " cannot be unlocked as it is not in 'locked' or 'error' status");
 						} else {
 							console.log(err);
-							process.exit(ERROR);
+							process.exit(conf.const.ERROR);
 						}
 					} else {
 						console.log("Batch " + thisBatchId + " Unlocked and ready for reprocessing");
 					}
 
-					process.exit(OK);
+					process.exit(conf.const.OK);
 				});
 			}
 		}

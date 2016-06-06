@@ -5,11 +5,11 @@
 
         http://aws.amazon.com/asl/
 
-    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License. 
+    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
 
 var aws = require('aws-sdk');
-require('./constants');
+var config = require('./config.json');
 
 if (process.argv.length < 4) {
 	console.log("You must provide an AWS Region Code, Batch ID, and configured Input Location");
@@ -33,14 +33,14 @@ var getBatch = {
 			S : prefix
 		}
 	},
-	TableName : batchTable,
+	TableName : config.table.batch,
 	ConsistentRead : true
 };
 
 dynamoDB.getItem(getBatch, function(err, data) {
 	if (err) {
 		console.log(err);
-		process.exit(ERROR);
+		process.exit(config.const.ERROR);
 	} else {
 		if (data && data.Item) {
 			console.log(JSON.stringify(data.Item));
@@ -49,5 +49,5 @@ dynamoDB.getItem(getBatch, function(err, data) {
 		}
 	}
 
-	process.exit(OK);
+	process.exit(config.const.OK);
 });

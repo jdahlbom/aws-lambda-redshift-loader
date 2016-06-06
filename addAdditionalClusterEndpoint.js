@@ -5,7 +5,7 @@
 
         http://aws.amazon.com/asl/
 
-    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License. 
+    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
 
 /**
@@ -15,9 +15,9 @@
 var readline = require('readline');
 var aws = require('aws-sdk');
 var dynamoDB;
-require('./constants');
+var conf = require('./config.json');
 var kmsCrypto = require('./kmsCrypto');
-var setRegion = 'us-east-1';
+var setRegion = 'us-east-1'; //FIXME hard coded region name.
 var common = require('./common');
 var async = require('async');
 
@@ -32,7 +32,7 @@ var updateRequest = {
 	Key : {
 		s3Prefix : undefined
 	},
-	TableName : configTable,
+	TableName : conf.table.config,
 	UpdateExpression : "SET loadClusters = list_append(loadClusters, :newLoadCluster),lastUpdate = :updateTime",
 	ExpressionAttributeValues : {
 		":newLoadCluster" : null,

@@ -5,7 +5,7 @@
 
         http://aws.amazon.com/asl/
 
-    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License. 
+    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
 
 /**
@@ -15,8 +15,8 @@
 var pjson = require('./package.json');
 var readline = require('readline');
 var aws = require('aws-sdk');
-require('./constants');
 var common = require('./common');
+var conf = require('./config.json');
 var async = require('async');
 var uuid = require('node-uuid');
 var dynamoDB;
@@ -24,7 +24,7 @@ var kmsCrypto = require('./kmsCrypto');
 var setRegion;
 
 dynamoConfig = {
-	TableName : configTable,
+	TableName : conf.table.config,
 	Item : {
 		currentBatch : {
 			S : uuid.v4()
@@ -162,7 +162,7 @@ q_userPwd = function(callback) {
 		kmsCrypto.encrypt(answer, function(err, ciphertext) {
 			if (err) {
 				console.log(JSON.stringify(err));
-				process.exit(ERROR);
+				process.exit(conf.const.ERROR);
 			} else {
 				dynamoConfig.Item.loadClusters.L[0].M.connectPassword = {
 					S : kmsCrypto.toLambdaStringFormat(ciphertext)
@@ -295,7 +295,7 @@ q_secretKey = function(callback) {
 			kmsCrypto.encrypt(answer, function(err, ciphertext) {
 				if (err) {
 					console.log(JSON.stringify(err));
-					process.exit(ERROR);
+					process.exit(conf.const.ERROR);
 				} else {
 					dynamoConfig.Item.secretKeyForS3 = {
 						S : kmsCrypto.toLambdaStringFormat(ciphertext)
@@ -313,7 +313,7 @@ q_symmetricKey = function(callback) {
 			kmsCrypto.encrypt(answer, function(err, ciphertext) {
 				if (err) {
 					console.log(JSON.stringify(err));
-					process.exit(ERROR);
+					process.exit(conf.const.ERROR);
 				} else {
 					dynamoConfig.Item.masterSymmetricKey = {
 						S : kmsCrypto.toLambdaStringFormat(ciphertext)
