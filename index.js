@@ -1,11 +1,11 @@
 /*
-		Copyright 2014-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ Copyright 2014-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
-    Licensed under the Amazon Software License (the "License"). You may not use this file except in compliance with the License. A copy of the License is located at
+ Licensed under the Amazon Software License (the "License"). You may not use this file except in compliance with the License. A copy of the License is located at
 
-        http://aws.amazon.com/asl/
+ http://aws.amazon.com/asl/
 
-    or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
+ or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
 var debug = false;
 var pjson = require('./package.json');
@@ -126,11 +126,9 @@ exports.getConfigWithRetry = function(prefix, callback) {
 
 exports.resolveConfig = function(prefix, successCallback, noConfigFoundCallback) {
 	var searchPrefix = prefix;
-	var config;
+	var config = null;
 
 	async.until(function() {
-		// run until we have found a configuration item, or the search
-		// prefix is undefined due to the shortening being completed
 		return config || !searchPrefix;
 	}, function(untilCallback) {
 		// query for the prefix, implementing a reduce by '/' each time,
@@ -138,17 +136,15 @@ exports.resolveConfig = function(prefix, successCallback, noConfigFoundCallback)
 		exports.getConfigWithRetry(searchPrefix, function(err, data) {
 			if (err) {
 				untilCallback(err);
-			} else {
-				if (data.Item) {
-					// set the config = this will cause the 'until' to
-					// complete
-					config = data;
-				} else {
-					// reduce the search prefix by one prefix item
-					searchPrefix = searchPrefix.shortenPrefix();
-				}
-				untilCallback();
+				return;
 			}
+			if (data.Item) {
+				config = data;
+			} else {
+				// reduce the search prefix by one prefix item
+				searchPrefix = searchPrefix.shortenPrefix();
+			}
+			untilCallback();
 		});
 	}, function(err) {
 		if (config) {
@@ -282,174 +278,174 @@ exports.handler = function(event, context) {
 		var tryNumber = 0;
 
 		async
-				.whilst(
-						function() {
-							// return OK if the proceed flag has
-							// been set, or if we've hit the
-							// retry count
-							return !proceed && tryNumber < addFileRetryLimit;
+			.whilst(
+				function() {
+					// return OK if the proceed flag has
+					// been set, or if we've hit the
+					// retry count
+					return !proceed && tryNumber < addFileRetryLimit;
+				},
+				function(callback) {
+					tryNumber++;
+
+					// build the reference to the
+					// pending batch, with an
+					// atomic add of the current file
+					var now = common.now();
+					var item = {
+						Key : {
+							batchId : {
+								S : thisBatchId
+							},
+							s3Prefix : {
+								S : s3Info.prefix
+							}
 						},
-						function(callback) {
-							tryNumber++;
+						TableName : conf.table.batch,
+						UpdateExpression : "add entries :entry, writeDates :appendFileDate set #stat = :open, lastUpdate = :updateTime",
+						ExpressionAttributeNames : {
+							"#stat" : 'status'
+						},
+						ExpressionAttributeValues : {
+							":entry" : {
+								SS : [ itemEntry ]
+							},
+							":appendFileDate" : {
+								NS : [ '' + now ]
+							},
+							":updateTime" : {
+								N : '' + now,
+							},
+							":open" : {
+								S : open
+							}
+						},
+						/*
+						 * current batch can't be locked
+						 */
+						ConditionExpression : "#stat = :open or attribute_not_exists(#stat)"
+					};
 
-							// build the reference to the
-							// pending batch, with an
-							// atomic add of the current file
-							var now = common.now();
-							var item = {
-								Key : {
-									batchId : {
-										S : thisBatchId
-									},
-									s3Prefix : {
-										S : s3Info.prefix
-									}
-								},
-								TableName : conf.table.batch,
-								UpdateExpression : "add entries :entry, writeDates :appendFileDate set #stat = :open, lastUpdate = :updateTime",
-								ExpressionAttributeNames : {
-									"#stat" : 'status'
-								},
-								ExpressionAttributeValues : {
-									":entry" : {
-										SS : [ itemEntry ]
-									},
-									":appendFileDate" : {
-										NS : [ '' + now ]
-									},
-									":updateTime" : {
-										N : '' + now,
-									},
-									":open" : {
-										S : open
-									}
-								},
+					// add the file to the pending batch
+					var configReloads = 0;
+					dynamoDB.updateItem(item, function(err, data) {
+						if (err) {
+							if (err.code === conf.const.conditionCheckFailed) {
 								/*
-								 * current batch can't be locked
+								 * the batch I have a reference to was
+								 * locked so reload the current batch ID
+								 * from the config
 								 */
-								ConditionExpression : "#stat = :open or attribute_not_exists(#stat)"
-							};
-
-							// add the file to the pending batch
-							var configReloads = 0;
-							dynamoDB.updateItem(item, function(err, data) {
-								if (err) {
-									if (err.code === conf.const.conditionCheckFailed) {
-										/*
-										 * the batch I have a reference to was
-										 * locked so reload the current batch ID
-										 * from the config
-										 */
-										var configReloadRequest = {
-											Key : {
-												s3Prefix : {
-													S : s3Info.prefix
-												}
-											},
-											TableName : conf.table.config,
-											ConsistentRead : true
-										};
-										dynamoDB.getItem(configReloadRequest, function(err, data) {
-											configReloads++;
-											if (err) {
-												if (err === conf.const.provisionedThroughputExceeded) {
-													console.log("Provisioned Throughput Exceeded on reload of " + conf.table.config + " due to locked batch write");
-													callback();
-												} else {
-													console.log(err);
-													callback(err);
-												}
-											} else {
-												/*
-												 * reset the batch ID to the
-												 * current marked batch
-												 */
-												thisBatchId = data.Item.currentBatch.S;
-
-												/*
-												 * we've not set proceed to
-												 * true, so async will retry
-												 */
-												console.log("Reload of Configuration Complete after attempting to write to Locked Batch " + thisBatchId + ". Attempt "
-														+ configReloads);
-
-												/*
-												 * we can call into the callback
-												 * immediately, as we probably
-												 * just missed the pending batch
-												 * processor's rotate of the
-												 * configuration batch ID
-												 */
-												callback();
-											}
-										});
+								var configReloadRequest = {
+									Key : {
+										s3Prefix : {
+											S : s3Info.prefix
+										}
+									},
+									TableName : conf.table.config,
+									ConsistentRead : true
+								};
+								dynamoDB.getItem(configReloadRequest, function(err, data) {
+									configReloads++;
+									if (err) {
+										if (err === conf.const.provisionedThroughputExceeded) {
+											console.log("Provisioned Throughput Exceeded on reload of " + conf.table.config + " due to locked batch write");
+											callback();
+										} else {
+											console.log(err);
+											callback(err);
+										}
 									} else {
-										asyncError = err;
-										proceed = true;
+										/*
+										 * reset the batch ID to the
+										 * current marked batch
+										 */
+										thisBatchId = data.Item.currentBatch.S;
+
+										/*
+										 * we've not set proceed to
+										 * true, so async will retry
+										 */
+										console.log("Reload of Configuration Complete after attempting to write to Locked Batch " + thisBatchId + ". Attempt "
+											+ configReloads);
+
+										/*
+										 * we can call into the callback
+										 * immediately, as we probably
+										 * just missed the pending batch
+										 * processor's rotate of the
+										 * configuration batch ID
+										 */
 										callback();
 									}
-								} else {
-									/*
-									 * no error - the file was added to the
-									 * batch, so mark the operation as OK so
-									 * async will not retry
-									 */
-									proceed = true;
-									callback();
-								}
-							});
-						},
-						function(err) {
-							if (err) {
-								// throw presented errors
-								console.log(err);
-								context.done(error, err);
+								});
 							} else {
-								if (asyncError) {
-									/*
-									 * throw errors which were encountered
-									 * during the async calls
-									 */
-									console.log(asyncError);
-									context.done(error, asyncError);
-								} else {
-									if (!proceed) {
-										/*
-										 * process what happened if the
-										 * iterative request to write to the
-										 * open pending batch timed out
-										 *
-										 * TODO Can we force a rotation of the
-										 * current batch at this point?
-										 */
-										var e = "Unable to write "
-												+ itemEntry
-												+ " in "
-												+ addFileRetryLimit
-												+ " attempts. Failing further processing to Batch "
-												+ thisBatchId
-												+ " which may be stuck in '"
-												+ conf.state.locked
-												+ "' state. If so, unlock the back using `node unlockBatch.js <batch ID>`, delete the processed file marker with `node processedFiles.js -d <filename>`, and then re-store the file in S3";
-										console.log(e);
-										exports.sendSNS(config.failureTopicARN.S, "Lambda Redshift Loader unable to write to Open Pending Batch", e, function() {
-											context.done(error, e);
-										}, function(err) {
-											console.log(err);
-											context.done(error, "Unable to Send SNS Notification");
-										});
-									} else {
-										// the add of the file was successful,
-										// so we
-										exports.linkProcessedFileToBatch(itemEntry, thisBatchId);
-										// which is async, so may fail but we'll
-										// still sweep
-										// the pending batch
-										exports.processPendingBatch(config, thisBatchId, s3Info);
-									}
-								}
+								asyncError = err;
+								proceed = true;
+								callback();
 							}
-						});
+						} else {
+							/*
+							 * no error - the file was added to the
+							 * batch, so mark the operation as OK so
+							 * async will not retry
+							 */
+							proceed = true;
+							callback();
+						}
+					});
+				},
+				function(err) {
+					if (err) {
+						// throw presented errors
+						console.log(err);
+						context.done(error, err);
+					} else {
+						if (asyncError) {
+							/*
+							 * throw errors which were encountered
+							 * during the async calls
+							 */
+							console.log(asyncError);
+							context.done(error, asyncError);
+						} else {
+							if (!proceed) {
+								/*
+								 * process what happened if the
+								 * iterative request to write to the
+								 * open pending batch timed out
+								 *
+								 * TODO Can we force a rotation of the
+								 * current batch at this point?
+								 */
+								var e = "Unable to write "
+									+ itemEntry
+									+ " in "
+									+ addFileRetryLimit
+									+ " attempts. Failing further processing to Batch "
+									+ thisBatchId
+									+ " which may be stuck in '"
+									+ conf.state.locked
+									+ "' state. If so, unlock the back using `node unlockBatch.js <batch ID>`, delete the processed file marker with `node processedFiles.js -d <filename>`, and then re-store the file in S3";
+								console.log(e);
+								exports.sendSNS(config.failureTopicARN.S, "Lambda Redshift Loader unable to write to Open Pending Batch", e, function() {
+									context.done(error, e);
+								}, function(err) {
+									console.log(err);
+									context.done(error, "Unable to Send SNS Notification");
+								});
+							} else {
+								// the add of the file was successful,
+								// so we
+								exports.linkProcessedFileToBatch(itemEntry, thisBatchId);
+								// which is async, so may fail but we'll
+								// still sweep
+								// the pending batch
+								exports.processPendingBatch(config, thisBatchId, s3Info);
+							}
+						}
+					}
+				});
 	};
 
 	/**
@@ -983,137 +979,137 @@ exports.handler = function(event, context) {
 
 		// decrypt the encrypted items
 		kmsCrypto
-				.decryptMap(
-						encryptedItems,
-						function(err, decryptedConfigItems) {
-							if (err) {
-								callback(err, {
+			.decryptMap(
+				encryptedItems,
+				function(err, decryptedConfigItems) {
+					if (err) {
+						callback(err, {
+							status : ERROR,
+							cluster : clusterInfo.clusterEndpoint.S
+						});
+					} else {
+						// create the credentials section
+						var credentials;
+
+						if (useLambdaCredentialsToLoad === true) {
+							credentials = 'aws_access_key_id=' + aws.config.credentials.accessKeyId + ';aws_secret_access_key=' + aws.config.credentials.secretAccessKey
+								+ ';token=' + aws.config.credentials.sessionToken;
+						} else {
+							credentials = 'aws_access_key_id=' + config.accessKeyForS3.S + ';aws_secret_access_key=' + decryptedConfigItems[s3secretKeyMapEntry].toString();
+						}
+
+						if (typeof clusterInfo.columnList === 'undefined') {
+							copyCommand = copyCommand + 'begin;\nCOPY ' + clusterInfo.targetTable.S + ' from \'s3://' + manifestInfo.manifestPath + '\'';
+						} else {
+							copyCommand = copyCommand + 'begin;\nCOPY ' + clusterInfo.targetTable.S + ' (' + clusterInfo.columnList.S + ') from \'s3://'
+								+ manifestInfo.manifestPath + '\'';
+						}
+
+						// add data formatting directives to copy
+						// options
+						if (config.dataFormat.S === 'CSV') {
+							// if removequotes or escape has been used
+							// in copy options, then we wont use the CSV
+							// formatter
+							if (!(config.copyOptions && (config.copyOptions.S.toUpperCase().indexOf('REMOVEQUOTES') > -1 || config.copyOptions.S.toUpperCase().indexOf(
+									'ESCAPE') > -1))) {
+								copyOptions = copyOptions + 'format csv ';
+							}
+
+							copyOptions = copyOptions + 'delimiter \'' + config.csvDelimiter.S + '\'\n';
+						} else if (config.dataFormat.S === 'JSON' || config.dataFormat.S === 'AVRO') {
+							copyOptions = copyOptions + ' format ' + config.dataFormat.S;
+
+							if (!(config.jsonPath === undefined || config.jsonPath === null)) {
+								copyOptions = copyOptions + ' \'' + config.jsonPath.S + '\' \n';
+							} else {
+								copyOptions = copyOptions + ' \'auto\' \n';
+							}
+						} else {
+							callback(null, {
+								status : ERROR,
+								error : 'Unsupported data format ' + config.dataFormat.S,
+								cluster : clusterInfo.clusterEndpoint.S
+							});
+						}
+
+						// add compression directives
+						if (config.compression !== undefined) {
+							copyOptions = copyOptions + ' ' + config.compression.S + '\n';
+						}
+
+						// add copy options
+						if (config.copyOptions !== undefined) {
+							copyOptions = copyOptions + config.copyOptions.S + '\n';
+						}
+
+						// add the encryption option to the copy
+						// command, and the master
+						// symmetric key clause to the credentials
+						if (config.masterSymmetricKey) {
+							copyOptions = copyOptions + "encrypted\n";
+
+							if (!decryptedConfigItems[symmetricKeyMapEntry]) {
+								credentials = credentials + ";master_symmetric_key=" + decryptedConfigItems[symmetricKeyMapEntry].toString();
+							} else {
+								console.log(JSON.stringify(decryptedConfigItems));
+
+								// we didn't get a decrypted symmetric
+								// key back
+								// so fail
+								callback(null, {
 									status : ERROR,
+									error : "KMS did not return a Decrypted Master Symmetric Key Value from: " + config.masterSymmetricKey.S,
+									cluster : clusterInfo.clusterEndpoint.S
+								});
+							}
+						}
+
+						// build the final copy command
+						copyCommand = copyCommand + " with credentials as \'" + credentials + "\' " + copyOptions + ";\ncommit;";
+
+						if (debug) {
+							console.log(copyCommand);
+						}
+
+						// build the connection string
+						var dbString = 'postgres://' + clusterInfo.connectUser.S + ":" + encodeURIComponent(decryptedConfigItems[passwordKeyMapEntry].toString()) + "@"
+							+ clusterInfo.clusterEndpoint.S + ":" + clusterInfo.clusterPort.N;
+						if (clusterInfo.clusterDB) {
+							dbString = dbString + '/' + clusterInfo.clusterDB.S;
+						}
+						if(clusterInfo.useSSL){
+							dbString = dbString + '?ssl=true&sslfactory=org.postgresql.ssl.NonValidatingFactory';
+						}
+						console.log("Connecting to Database " + clusterInfo.clusterEndpoint.S + ":" + clusterInfo.clusterPort.N);
+
+						/*
+						 * connect to database and run the copy command
+						 */
+						pg.connect(dbString, function(err, client, done) {
+							if (err) {
+								callback(null, {
+									status : ERROR,
+									error : err,
 									cluster : clusterInfo.clusterEndpoint.S
 								});
 							} else {
-								// create the credentials section
-								var credentials;
-
-								if (useLambdaCredentialsToLoad === true) {
-									credentials = 'aws_access_key_id=' + aws.config.credentials.accessKeyId + ';aws_secret_access_key=' + aws.config.credentials.secretAccessKey
-											+ ';token=' + aws.config.credentials.sessionToken;
-								} else {
-									credentials = 'aws_access_key_id=' + config.accessKeyForS3.S + ';aws_secret_access_key=' + decryptedConfigItems[s3secretKeyMapEntry].toString();
-								}
-
-								if (typeof clusterInfo.columnList === 'undefined') {
-									copyCommand = copyCommand + 'begin;\nCOPY ' + clusterInfo.targetTable.S + ' from \'s3://' + manifestInfo.manifestPath + '\'';
-								} else {
-									copyCommand = copyCommand + 'begin;\nCOPY ' + clusterInfo.targetTable.S + ' (' + clusterInfo.columnList.S + ') from \'s3://'
-											+ manifestInfo.manifestPath + '\'';
-								}
-
-								// add data formatting directives to copy
-								// options
-								if (config.dataFormat.S === 'CSV') {
-									// if removequotes or escape has been used
-									// in copy options, then we wont use the CSV
-									// formatter
-									if (!(config.copyOptions && (config.copyOptions.S.toUpperCase().indexOf('REMOVEQUOTES') > -1 || config.copyOptions.S.toUpperCase().indexOf(
-											'ESCAPE') > -1))) {
-										copyOptions = copyOptions + 'format csv ';
-									}
-
-									copyOptions = copyOptions + 'delimiter \'' + config.csvDelimiter.S + '\'\n';
-								} else if (config.dataFormat.S === 'JSON' || config.dataFormat.S === 'AVRO') {
-									copyOptions = copyOptions + ' format ' + config.dataFormat.S;
-
-									if (!(config.jsonPath === undefined || config.jsonPath === null)) {
-										copyOptions = copyOptions + ' \'' + config.jsonPath.S + '\' \n';
-									} else {
-										copyOptions = copyOptions + ' \'auto\' \n';
-									}
-								} else {
-									callback(null, {
-										status : ERROR,
-										error : 'Unsupported data format ' + config.dataFormat.S,
-										cluster : clusterInfo.clusterEndpoint.S
-									});
-								}
-
-								// add compression directives
-								if (config.compression !== undefined) {
-									copyOptions = copyOptions + ' ' + config.compression.S + '\n';
-								}
-
-								// add copy options
-								if (config.copyOptions !== undefined) {
-									copyOptions = copyOptions + config.copyOptions.S + '\n';
-								}
-
-								// add the encryption option to the copy
-								// command, and the master
-								// symmetric key clause to the credentials
-								if (config.masterSymmetricKey) {
-									copyOptions = copyOptions + "encrypted\n";
-
-									if (!decryptedConfigItems[symmetricKeyMapEntry]) {
-										credentials = credentials + ";master_symmetric_key=" + decryptedConfigItems[symmetricKeyMapEntry].toString();
-									} else {
-										console.log(JSON.stringify(decryptedConfigItems));
-
-										// we didn't get a decrypted symmetric
-										// key back
-										// so fail
-										callback(null, {
-											status : ERROR,
-											error : "KMS did not return a Decrypted Master Symmetric Key Value from: " + config.masterSymmetricKey.S,
-											cluster : clusterInfo.clusterEndpoint.S
-										});
-									}
-								}
-
-								// build the final copy command
-								copyCommand = copyCommand + " with credentials as \'" + credentials + "\' " + copyOptions + ";\ncommit;";
-
-								if (debug) {
-									console.log(copyCommand);
-								}
-
-								// build the connection string
-								var dbString = 'postgres://' + clusterInfo.connectUser.S + ":" + encodeURIComponent(decryptedConfigItems[passwordKeyMapEntry].toString()) + "@"
-										+ clusterInfo.clusterEndpoint.S + ":" + clusterInfo.clusterPort.N;
-								if (clusterInfo.clusterDB) {
-									dbString = dbString + '/' + clusterInfo.clusterDB.S;
-								}
-								if(clusterInfo.useSSL){
-								    dbString = dbString + '?ssl=true&sslfactory=org.postgresql.ssl.NonValidatingFactory';
-								}
-								console.log("Connecting to Database " + clusterInfo.clusterEndpoint.S + ":" + clusterInfo.clusterPort.N);
-
 								/*
-								 * connect to database and run the copy command
+								 * run the copy command. We will allow 5
+								 * retries when the 'specified key does
+								 * not exist' error is encountered, as
+								 * this means an issue with eventual
+								 * consistency in US Std. We will use an
+								 * exponential backoff from 30ms with 5
+								 * retries - giving a max retry duration
+								 * of ~ 1 second
 								 */
-								pg.connect(dbString, function(err, client, done) {
-									if (err) {
-										callback(null, {
-											status : ERROR,
-											error : err,
-											cluster : clusterInfo.clusterEndpoint.S
-										});
-									} else {
-										/*
-										 * run the copy command. We will allow 5
-										 * retries when the 'specified key does
-										 * not exist' error is encountered, as
-										 * this means an issue with eventual
-										 * consistency in US Std. We will use an
-										 * exponential backoff from 30ms with 5
-										 * retries - giving a max retry duration
-										 * of ~ 1 second
-										 */
-										exports.runPgCommand(clusterInfo, client, done, copyCommand, 5, [ "S3ServiceException:The specified key does not exist.,Status 404" ], 30,
-												callback);
-									}
-								});
+								exports.runPgCommand(clusterInfo, client, done, copyCommand, 5, [ "S3ServiceException:The specified key does not exist.,Status 404" ], 30,
+									callback);
 							}
 						});
+					}
+				});
 	};
 
 	/**
@@ -1329,89 +1325,88 @@ exports.handler = function(event, context) {
 			console.log("Event type unsupported by Lambda Redshift Loader");
 			console.log(JSON.stringify(event));
 			context.done(null, null);
-		} else {
-			if (event.Records.length > 1) {
-				context.done(error, "Unable to process multi-record events");
-			} else {
-				for (var i = 0; i < event.Records.length; i++) {
-					var r = event.Records[i];
-
-					// ensure that we can process this event based on a variety
-					// of criteria
-					var noProcessReason = undefined;
-					if (r.eventSource !== "aws:s3") {
-						noProcessReason = "Invalid Event Source " + r.eventSource;
-					}
-					if (!(r.eventName === "ObjectCreated:Copy" || r.eventName === "ObjectCreated:Put" || r.eventName === 'ObjectCreated:CompleteMultipartUpload')) {
-						noProcessReason = "Invalid Event Name " + r.eventName;
-					}
-					if (r.s3.s3SchemaVersion !== "1.0") {
-						noProcessReason = "Unknown S3 Schema Version " + r.s3.s3SchemaVersion;
-					}
-
-					if (noProcessReason) {
-						console.log(noProcessReason);
-						context.done(error, noProcessReason);
-					} else {
-						// extract the s3 details from the event
-						var inputInfo = {
-							bucket : undefined,
-							key : undefined,
-							prefix : undefined,
-							inputFilename : undefined
-						};
-
-						inputInfo.bucket = r.s3.bucket.name;
-						inputInfo.key = decodeURIComponent(r.s3.object.key);
-
-						// remove the bucket name from the key, if we have
-						// received it - this happens on object copy
-						inputInfo.key = inputInfo.key.replace(inputInfo.bucket + "/", "");
-
-						var keyComponents = inputInfo.key.split('/');
-						inputInfo.inputFilename = keyComponents[keyComponents.length - 1];
-
-						// remove the filename from the prefix value
-						var searchKey = inputInfo.key.replace(inputInfo.inputFilename, '').replace(/\/$/, '');
-
-						// transform hive style dynamic prefixes into static
-						// match prefixes and set the prefix in inputInfo
-						inputInfo.prefix = inputInfo.bucket + '/' + searchKey.transformHiveStylePrefix();
-
-						exports.resolveConfig(inputInfo.prefix, function(err, configData) {
-							/*
-							 * we did get a configuration found by the
-							 * resolveConfig method
-							 */
-							if (err) {
-								console.log(err);
-								context.done(error, err);
-							} else {
-								// update the inputInfo prefix to match the
-								// resolved
-								// config entry
-								inputInfo.prefix = configData.Item.s3Prefix.S;
-
-								if (debug) {
-									console.log(JSON.stringify(inputInfo));
-								}
-
-								// call the foundConfig method with the data
-								// item
-								exports.foundConfig(inputInfo, null, configData);
-							}
-						}, function(err) {
-							// finish with no exception - where this file sits
-							// in the S3
-							// structure is not configured for redshift loads
-							console.log("No Configuration Found for " + inputInfo.prefix);
-
-							context.done(null, null);
-						});
-					}
-				}
-			}
+			return;
 		}
+		if (event.Records.length > 1) {
+			context.done(error, "Unable to process multi-record events");
+			return;
+		}
+
+		var r = event.Records[0];
+
+		// ensure that we can process this event based on a variety
+		// of criteria
+		var noProcessReason = undefined;
+		if (r.eventSource !== "aws:s3") {
+			noProcessReason = "Invalid Event Source " + r.eventSource;
+		}
+		if (!(r.eventName === "ObjectCreated:Copy" || r.eventName === "ObjectCreated:Put" || r.eventName === 'ObjectCreated:CompleteMultipartUpload')) {
+			noProcessReason = "Invalid Event Name " + r.eventName;
+		}
+		if (r.s3.s3SchemaVersion !== "1.0") {
+			noProcessReason = "Unknown S3 Schema Version " + r.s3.s3SchemaVersion;
+		}
+
+		if (noProcessReason) {
+			console.log(noProcessReason);
+			context.done(error, noProcessReason);
+			return;
+		}
+		// extract the s3 details from the event
+		var inputInfo = {
+			bucket : undefined,
+			key : undefined,
+			prefix : undefined,
+			inputFilename : undefined
+		};
+
+		inputInfo.bucket = r.s3.bucket.name;
+		inputInfo.key = decodeURIComponent(r.s3.object.key);
+
+		// remove the bucket name from the key, if we have
+		// received it - this happens on object copy
+		inputInfo.key = inputInfo.key.replace(inputInfo.bucket + "/", "");
+
+		var keyComponents = inputInfo.key.split('/');
+		inputInfo.inputFilename = keyComponents[keyComponents.length - 1];
+
+		// remove the filename from the prefix value
+		var searchKey = inputInfo.key.replace(inputInfo.inputFilename, '').replace(/\/$/, '');
+
+		// transform hive style dynamic prefixes into static
+		// match prefixes and set the prefix in inputInfo
+		inputInfo.prefix = inputInfo.bucket + '/' + searchKey.transformHiveStylePrefix();
+
+		exports.resolveConfig(inputInfo.prefix, function(err, configData) {
+			/*
+			 * we did get a configuration found by the
+			 * resolveConfig method
+			 */
+			if (err) {
+				console.log(err);
+				context.done(error, err);
+			} else {
+				// update the inputInfo prefix to match the
+				// resolved
+				// config entry
+				inputInfo.prefix = configData.Item.s3Prefix.S;
+
+				if (debug) {
+					console.log(JSON.stringify(inputInfo));
+				}
+
+				// call the foundConfig method with the data
+				// item
+				exports.foundConfig(inputInfo, null, configData);
+			}
+		}, function(err) {
+			// finish with no exception - where this file sits
+			// in the S3
+			// structure is not configured for redshift loads
+			console.log("No Configuration Found for " + inputInfo.prefix);
+
+			context.done(null, null);
+		});
 	} catch (e) {
 		console.log(e);
 		console.log(JSON.stringify(event));
