@@ -12,6 +12,7 @@
     "files": "LambdaRedshiftProcessedFiles"
   },
   "const": {
+    "aws_region": "eu-west-1",
     "batchId": "batchId",
     "currentBatch": "currentBatch",
     "s3prefix": "s3Prefix",

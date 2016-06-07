@@ -1,0 +1,29 @@
+{
+  "region": "eu-west-1",
+  "s3prefix": "yle-aws-yhteiset-test",
+  "filenameFilterRegex": ".*",
+  "cluster": {
+    "endpoint": "endpoint.aws.amazon.com",
+    "port": "5432",
+    "sslUsed": false,
+    "database": "test",
+    "username": "username",
+    "password": "plaintext_password_dont_commit",
+    "table": "tablename",
+    "columnsListCsv": "columns",
+    "truncateTable": true,
+    "format": "CSV",
+    "delimiter": ",",
+    "copyOpts": ""
+  },
+  "manifestBucket": "manifestbucket",
+  "manifestPrefix": "manifest",
+  "failedManifestPrefix": "failedManifest",
+  "redshiftS3RoleArn": "arn:aws:iam:123457:role/",
+  "encryptedFilesKey": "",
+  "sns": {
+    "failureTopicArn": "",
+    "successTopicArn": ""
+  },
+  "batchSize": 10000
+}

@@ -14,12 +14,13 @@
  */
 var readline = require('readline');
 var aws = require('aws-sdk');
-var dynamoDB;
 var conf = require('./config.json');
 var kmsCrypto = require('./kmsCrypto');
-var setRegion = 'us-east-1'; //FIXME hard coded region name.
 var common = require('./common');
 var async = require('async');
+
+var setRegion = conf.const.aws_region;
+var dynamoDB;
 
 // simple frame for the updated cluster config
 var clusterConfig = {
