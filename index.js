@@ -44,6 +44,7 @@ var upgrade = require('./upgrades');
 
 var ERROR = conf.const.ERROR;
 var OK = conf.const.OK;
+var error = conf.state.error;
 
 String.prototype.shortenPrefix = function() {
 	var tokens = this.split("/");
@@ -87,6 +88,10 @@ exports.getConfigWithRetry = function(prefix, callback) {
 		ConsistentRead : true
 	};
 
+	if (debug) {
+		console.log("getConfigWithRetry: "+ JSON.stringify(dynamoLookup));
+	}
+
 	async.whilst(function() {
 		// return OK if the proceed flag has been set, or if
 		// we've hit the retry count
@@ -94,6 +99,9 @@ exports.getConfigWithRetry = function(prefix, callback) {
 	}, function(callback) {
 		tryNumber++;
 
+		if (debug) {
+			console.log("Getting configuration from dynamodb: Attempt "+ tryNumber);
+		}
 		// lookup the configuration item, and run
 		// foundConfig on completion
 		dynamoDB.getItem(dynamoLookup, function(err, data) {
@@ -105,17 +113,25 @@ exports.getConfigWithRetry = function(prefix, callback) {
 					console.log(conf.const.provisionedThroughputExceeded + " while accessing " + conf.table.config + ". Retrying in " + timeout + " ms");
 					setTimeout(callback, timeout);
 				} else {
+					console.log("getConfigWithRetry: ERROR: "+ err);
+
 					// some other error - call the error
 					// callback
 					callback(err);
 				}
 			} else {
+				if (debug) {
+					console.log("Got configuration: Attempt "+ tryNumber);
+				}
 				configData = data;
 				proceed = true;
 				callback(null);
 			}
 		});
 	}, function(err) {
+		if (debug) {
+			console.log("Error resolving config: "+ err);
+		}
 		if (err) {
 			callback(err);
 		} else {
@@ -127,6 +143,9 @@ exports.getConfigWithRetry = function(prefix, callback) {
 exports.resolveConfig = function(prefix, successCallback, noConfigFoundCallback) {
 	var searchPrefix = prefix;
 	var config;
+	if (debug) {
+		console.log("resolveConfig: "+ JSON.stringify(prefix));
+	}
 
 	async.until(function() {
 		// run until we have found a configuration item, or the search
@@ -135,6 +154,9 @@ exports.resolveConfig = function(prefix, successCallback, noConfigFoundCallback)
 	}, function(untilCallback) {
 		// query for the prefix, implementing a reduce by '/' each time,
 		// such that we load the most specific config first
+		if (debug) {
+			console.log("resolveConfig: getConfigWithRetry called: "+ searchPrefix);
+		}
 		exports.getConfigWithRetry(searchPrefix, function(err, data) {
 			if (err) {
 				untilCallback(err);
@@ -179,6 +201,10 @@ exports.handler = function(event, context) {
 
 	/* callback run when we find a configuration for load in Dynamo DB */
 	exports.foundConfig = function(s3Info, err, data) {
+		if (debug) {
+			console.log("foundConfig: "+ s3Info);
+		}
+
 		if (err) {
 			console.log(err);
 			var msg = 'Error getting Redshift Configuration for ' + s3Info.prefix + ' from DynamoDB ';
@@ -1368,7 +1394,9 @@ exports.handler = function(event, context) {
 						// transform hive style dynamic prefixes into static
 						// match prefixes and set the prefix in inputInfo
 						inputInfo.prefix = inputInfo.bucket + '/' + searchKey.transformHiveStylePrefix();
-						
+						if (debug) {
+							console.log("Resolving config: "+ JSON.stringify(inputInfo));
+						}
 						exports.resolveConfig(inputInfo.prefix, function(err, configData) {
 							/*
 							 * we did get a configuration found by the
@@ -1378,13 +1406,16 @@ exports.handler = function(event, context) {
 								console.log(err);
 								context.done(error, err);
 							} else {
+								if (debug) {
+									console.log("Got config");
+								}
 								// update the inputInfo prefix to match the
 								// resolved
 								// config entry
 								inputInfo.prefix = configData.Item.s3Prefix.S;
 
 								if (debug) {
-									console.log(JSON.stringify(inputInfo));
+									console.log("Config resolved: "+ JSON.stringify(configData));
 								}
 
 								// call the foundConfig method with the data
@@ -1404,8 +1435,9 @@ exports.handler = function(event, context) {
 			}
 		}
 	} catch (e) {
+		console.log("index.handler outmost handler caught error: "+ e);
 		console.log(e);
-		console.log(JSON.stringify(event));
+		console.log("Error while processing event: " + JSON.stringify(event));
 		context.done(error, e);
 	}
 };
