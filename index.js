@@ -981,139 +981,130 @@ exports.handler = function(event, context) {
 			encryptedItems[symmetricKeyMapEntry] = new Buffer(config.masterSymmetricKey.S, 'base64');
 		}
 
-		// decrypt the encrypted items
-		kmsCrypto
-				.decryptMap(
-						encryptedItems,
-						function(err, decryptedConfigItems) {
-							if (err) {
-								callback(err, {
-									status : ERROR,
-									cluster : clusterInfo.clusterEndpoint.S
-								});
-							} else {
-								// create the credentials section
-								var credentials;
+		var generateQueryAndSend = function(decryptedConfigItems, callback) {
+			// create the credentials section
+			var credentials;
 
-								if (useLambdaCredentialsToLoad === true) {
-									credentials = 'aws_access_key_id=' + aws.config.credentials.accessKeyId + ';aws_secret_access_key=' + aws.config.credentials.secretAccessKey
-											+ ';token=' + aws.config.credentials.sessionToken;
-								} else {
-									credentials = 'aws_access_key_id=' + config.accessKeyForS3.S + ';aws_secret_access_key=' + decryptedConfigItems[s3secretKeyMapEntry].toString();
-								}
+			if (config.redshiftS3RoleArn.S) {
+				credentials = 'aws_iam_role='+config.redshiftS3RoleArn.S;
+			}
+			else if (useLambdaCredentialsToLoad === true) {
+				credentials = 'aws_access_key_id=' + aws.config.credentials.accessKeyId + ';aws_secret_access_key=' + aws.config.credentials.secretAccessKey
+					+ ';token=' + aws.config.credentials.sessionToken;
+			} else {
+				credentials = 'aws_access_key_id=' + config.accessKeyForS3.S + ';aws_secret_access_key=' + decryptedConfigItems[s3secretKeyMapEntry].toString();
+			}
 
-								if (typeof clusterInfo.columnList === 'undefined') {
-									copyCommand = copyCommand + 'begin;\nCOPY ' + clusterInfo.targetTable.S + ' from \'s3://' + manifestInfo.manifestPath + '\'';
-								} else {
-									copyCommand = copyCommand + 'begin;\nCOPY ' + clusterInfo.targetTable.S + ' (' + clusterInfo.columnList.S + ') from \'s3://'
-											+ manifestInfo.manifestPath + '\'';
-								}
+			if (typeof clusterInfo.columnList === 'undefined') {
+				copyCommand = copyCommand + 'begin;\nCOPY ' + clusterInfo.targetTable.S + ' from \'s3://' + manifestInfo.manifestPath + '\'';
+			} else {
+				copyCommand = copyCommand + 'begin;\nCOPY ' + clusterInfo.targetTable.S + ' (' + clusterInfo.columnList.S + ') from \'s3://'
+					+ manifestInfo.manifestPath + '\'';
+			}
 
-								// add data formatting directives to copy
-								// options
-								if (config.dataFormat.S === 'CSV') {
-									// if removequotes or escape has been used
-									// in copy options, then we wont use the CSV
-									// formatter
-									if (!(config.copyOptions && (config.copyOptions.S.toUpperCase().indexOf('REMOVEQUOTES') > -1 || config.copyOptions.S.toUpperCase().indexOf(
-											'ESCAPE') > -1))) {
-										copyOptions = copyOptions + 'format csv ';
-									}
+			if (config.dataFormat.S === 'CSV') {
+				if (!(config.copyOptions &&
+					(config.copyOptions.S.toUpperCase().indexOf('REMOVEQUOTES') > -1 ||
+					config.copyOptions.S.toUpperCase().indexOf('ESCAPE') > -1))) {
+					copyOptions = copyOptions + 'format csv ';
+				}
 
-									copyOptions = copyOptions + 'delimiter \'' + config.csvDelimiter.S + '\'\n';
-								} else if (config.dataFormat.S === 'JSON' || config.dataFormat.S === 'AVRO') {
-									copyOptions = copyOptions + ' format ' + config.dataFormat.S;
+				copyOptions = copyOptions + 'delimiter \'' + config.csvDelimiter.S + '\'\n';
+			} else if (config.dataFormat.S === 'JSON' || config.dataFormat.S === 'AVRO') {
+				copyOptions = copyOptions + ' format ' + config.dataFormat.S;
 
-									if (!(config.jsonPath === undefined || config.jsonPath === null)) {
-										copyOptions = copyOptions + ' \'' + config.jsonPath.S + '\' \n';
-									} else {
-										copyOptions = copyOptions + ' \'auto\' \n';
-									}
-								} else {
-									callback(null, {
-										status : ERROR,
-										error : 'Unsupported data format ' + config.dataFormat.S,
-										cluster : clusterInfo.clusterEndpoint.S
-									});
-								}
+				if (!(config.jsonPath === undefined || config.jsonPath === null)) {
+					copyOptions = copyOptions + ' \'' + config.jsonPath.S + '\' \n';
+				} else {
+					copyOptions = copyOptions + ' \'auto\' \n';
+				}
+			} else {
+				callback(null, {
+					status : ERROR,
+					error : 'Unsupported data format ' + config.dataFormat.S,
+					cluster : clusterInfo.clusterEndpoint.S
+				});
+			}
 
-								// add compression directives
-								if (config.compression !== undefined) {
-									copyOptions = copyOptions + ' ' + config.compression.S + '\n';
-								}
+			if (config.compression !== undefined) {
+				copyOptions = copyOptions + ' ' + config.compression.S + '\n';
+			}
 
-								// add copy options
-								if (config.copyOptions !== undefined) {
-									copyOptions = copyOptions + config.copyOptions.S + '\n';
-								}
+			if (config.copyOptions !== undefined) {
+				copyOptions = copyOptions + config.copyOptions.S + '\n';
+			}
 
-								// add the encryption option to the copy
-								// command, and the master
-								// symmetric key clause to the credentials
-								if (config.masterSymmetricKey) {
-									copyOptions = copyOptions + "encrypted\n";
+			// add the encryption option to the copy
+			// command, and the master
+			// symmetric key clause to the credentials
+			if (config.masterSymmetricKey) {
+				copyOptions = copyOptions + "encrypted\n";
 
-									if (!decryptedConfigItems[symmetricKeyMapEntry]) {
-										credentials = credentials + ";master_symmetric_key=" + decryptedConfigItems[symmetricKeyMapEntry].toString();
-									} else {
-										console.log(JSON.stringify(decryptedConfigItems));
+				if (!decryptedConfigItems[symmetricKeyMapEntry]) {
+					credentials = credentials + ";master_symmetric_key=" + decryptedConfigItems[symmetricKeyMapEntry].toString();
+				} else {
+					console.log(JSON.stringify(decryptedConfigItems));
+					callback(null, {
+						status : ERROR,
+						error : "KMS did not return a Decrypted Master Symmetric Key Value from: " + config.masterSymmetricKey.S,
+						cluster : clusterInfo.clusterEndpoint.S
+					});
+					return;
+				}
+			}
 
-										// we didn't get a decrypted symmetric
-										// key back
-										// so fail
-										callback(null, {
-											status : ERROR,
-											error : "KMS did not return a Decrypted Master Symmetric Key Value from: " + config.masterSymmetricKey.S,
-											cluster : clusterInfo.clusterEndpoint.S
-										});
-									}
-								}
+			copyCommand = copyCommand + " with credentials as \'" + credentials + "\' " + copyOptions + ";\ncommit;";
 
-								// build the final copy command
-								copyCommand = copyCommand + " with credentials as \'" + credentials + "\' " + copyOptions + ";\ncommit;";
+			if (debug) {
+				console.log(copyCommand);
+			}
 
-								if (debug) {
-									console.log(copyCommand);
-								}
+			var dbString = 'postgres://' + clusterInfo.connectUser.S + ":" + encodeURIComponent(decryptedConfigItems[passwordKeyMapEntry].toString()) + "@"
+				+ clusterInfo.clusterEndpoint.S + ":" + clusterInfo.clusterPort.N;
+			if (clusterInfo.clusterDB) {
+				dbString = dbString + '/' + clusterInfo.clusterDB.S;
+			}
+			if(clusterInfo.useSSL){
+				dbString = dbString + '?ssl=true&sslfactory=org.postgresql.ssl.NonValidatingFactory';
+			}
+			console.log("Connecting to Database " + clusterInfo.clusterEndpoint.S + ":" + clusterInfo.clusterPort.N);
 
-								// build the connection string
-								var dbString = 'postgres://' + clusterInfo.connectUser.S + ":" + encodeURIComponent(decryptedConfigItems[passwordKeyMapEntry].toString()) + "@"
-										+ clusterInfo.clusterEndpoint.S + ":" + clusterInfo.clusterPort.N;
-								if (clusterInfo.clusterDB) {
-									dbString = dbString + '/' + clusterInfo.clusterDB.S;
-								}
-								if(clusterInfo.useSSL){
-								    dbString = dbString + '?ssl=true&sslfactory=org.postgresql.ssl.NonValidatingFactory';
-								}
-								console.log("Connecting to Database " + clusterInfo.clusterEndpoint.S + ":" + clusterInfo.clusterPort.N);
+			pg.connect(dbString, function(err, client, done) {
+				if (err) {
+					callback(null, {
+						status : ERROR,
+						error : err,
+						cluster : clusterInfo.clusterEndpoint.S
+					});
+				} else {
+					/*
+					 * run the copy command. We will allow 5
+					 * retries when the 'specified key does
+					 * not exist' error is encountered, as
+					 * this means an issue with eventual
+					 * consistency in US Std. We will use an
+					 * exponential backoff from 30ms with 5
+					 * retries - giving a max retry duration
+					 * of ~ 1 second
+					 */
+					exports.runPgCommand(clusterInfo, client, done, copyCommand, 5, [ "S3ServiceException:The specified key does not exist.,Status 404" ], 30,
+						callback);
+				}
+			});
+		};
 
-								/*
-								 * connect to database and run the copy command
-								 */
-								pg.connect(dbString, function(err, client, done) {
-									if (err) {
-										callback(null, {
-											status : ERROR,
-											error : err,
-											cluster : clusterInfo.clusterEndpoint.S
-										});
-									} else {
-										/*
-										 * run the copy command. We will allow 5
-										 * retries when the 'specified key does
-										 * not exist' error is encountered, as
-										 * this means an issue with eventual
-										 * consistency in US Std. We will use an
-										 * exponential backoff from 30ms with 5
-										 * retries - giving a max retry duration
-										 * of ~ 1 second
-										 */
-										exports.runPgCommand(clusterInfo, client, done, copyCommand, 5, [ "S3ServiceException:The specified key does not exist.,Status 404" ], 30,
-												callback);
-									}
-								});
-							}
+		kmsCrypto.decryptMap(
+				encryptedItems,
+				function(err, decryptedConfigItems) {
+					if (err) {
+						callback(err, {
+							status : ERROR,
+							cluster : clusterInfo.clusterEndpoint.S
 						});
+						return;
+					}
+					generateQueryAndSend(decryptedConfigItems, callback);
+				});
 	};
 
 	/**
