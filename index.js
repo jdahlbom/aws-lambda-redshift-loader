@@ -15,11 +15,14 @@ var region = process.env['AWS_REGION'];
 if (!region || region === null || region === "") {
 	region = "us-east-1";
 	console.log("AWS Lambda Redshift Database Loader using default region " + region);
+} else {
+	console.log("AWS Lambda Redshift Database Loader using region " + region);
 }
 
 var aws = require('aws-sdk');
 aws.config.update({
-	region : region
+	region : region,
+	logger : process.stdout
 });
 var s3 = new aws.S3({
 	apiVersion : '2006-03-01',
@@ -27,8 +30,13 @@ var s3 = new aws.S3({
 });
 var dynamoDB = new aws.DynamoDB({
 	apiVersion : '2012-08-10',
-	region : region
+	region : region,
+	httpOptions : {
+		timeout : 10000
+	},
+	maxRetries: 1
 });
+
 var sns = new aws.SNS({
 	apiVersion : '2010-03-31',
 	region : region
@@ -106,6 +114,9 @@ exports.getConfigWithRetry = function(prefix, callback) {
 		// foundConfig on completion
 		dynamoDB.getItem(dynamoLookup, function(err, data) {
 			if (err) {
+				if (debug) {
+					console.log("Error getting item: "+ err);
+				}
 				if (err.code === conf.const.provisionedThroughputExceeded) {
 					// sleep for bounded jitter time up to 1
 					// second and then retry
@@ -272,7 +283,7 @@ exports.handler = function(event, context) {
 			if (err) {
 				// the conditional check failed so the file has already
 				// been processed
-				if (err.code == conditionCheckFailed) {
+				if (err.code == conf.const.conditionCheckFailed) {
 					console.log("File " + itemEntry + " Already Processed");
 					context.done(null, null);
 				} else {
@@ -344,10 +355,10 @@ exports.handler = function(event, context) {
 										NS : [ '' + now ]
 									},
 									":updateTime" : {
-										N : '' + now,
+										N : '' + now
 									},
 									":open" : {
-										S : open
+										S : conf.state.open
 									}
 								},
 								/*
@@ -645,7 +656,7 @@ exports.handler = function(event, context) {
 						Expected : {
 							status : {
 								AttributeValueList : [ {
-									S : open
+									S : conf.state.open
 								} ],
 								ComparisonOperator : 'EQ'
 							}
