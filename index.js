@@ -7,7 +7,8 @@
 
     or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied. See the License for the specific language governing permissions and limitations under the License.
  */
-var debug = false;
+var conf = require('./config.json');
+var debug = conf.debug;
 var pjson = require('./package.json');
 var region = process.env['AWS_REGION'];
 
@@ -33,7 +34,6 @@ var sns = new aws.SNS({
 	region : region
 });
 
-var conf = require('./config.json');
 var kmsCrypto = require('./kmsCrypto');
 kmsCrypto.setRegion(region);
 var common = require('./common');
@@ -1368,7 +1368,7 @@ exports.handler = function(event, context) {
 						// transform hive style dynamic prefixes into static
 						// match prefixes and set the prefix in inputInfo
 						inputInfo.prefix = inputInfo.bucket + '/' + searchKey.transformHiveStylePrefix();
-
+						
 						exports.resolveConfig(inputInfo.prefix, function(err, configData) {
 							/*
 							 * we did get a configuration found by the

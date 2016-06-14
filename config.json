@@ -29,5 +29,6 @@
   },
   "kms": {
     "alias": "alias/LambdaRedshiftLoaderKey"
-  }
+  },
+  "debug": true
 }
