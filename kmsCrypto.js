@@ -11,6 +11,7 @@ var useRegion = undefined;
 var aws = require('aws-sdk');
 var async = require('async');
 var kms = undefined;
+var conf = require('config.json');
 
 var authContext = {
 	module : "AWSLambdaRedshiftLoader",
@@ -18,7 +19,7 @@ var authContext = {
 };
 
 // module key alias to be used for this application
-var moduleKeyName = "alias/LambaRedshiftLoaderKey";
+var moduleKeyName = conf.alias.kms;
 
 var setRegion = function(region) {
 	if (!region) {
